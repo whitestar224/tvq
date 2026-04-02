@@ -29,6 +29,7 @@ const dlUpdBtn = document.getElementById('dlUpdBtn');
 const toggleTradeBtn = document.getElementById('toggleTradeBtn');
 const tradePanel = document.getElementById('tradePanel');
 const autoAlertChk = document.getElementById('autoAlertChk');
+const exchangeSel = document.getElementById('exchangeSel');
 const apiStatusText = document.getElementById('apiStatusText');
 const cfgApiBtn = document.getElementById('cfgApiBtn');
 const testApiBtn = document.getElementById('testApiBtn');
@@ -49,6 +50,9 @@ const closeApiBtn = document.getElementById('closeApiBtn');
 const saveApiBtn = document.getElementById('saveApiBtn');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const apiSecretInput = document.getElementById('apiSecretInput');
+const apiExchangeSel = document.getElementById('apiExchangeSel');
+const passphraseWrap = document.getElementById('passphraseWrap');
+const passphraseInput = document.getElementById('passphraseInput');
 
 async function refreshStatus() {
   try {
@@ -90,12 +94,12 @@ async function refreshUpdateStatus(silent = false) {
 }
 
 async function refreshCredentialStatus() {
-  const r = await window.tvq.getBinanceCredentialStatus();
+  const r = await window.tvq.getExchangeCredentialStatus(exchangeSel.value);
   if (!r.ok || !r.configured) {
-    apiStatusText.textContent = 'API: 未配置';
+    apiStatusText.textContent = `${exchangeSel.value} API: 未配置`;
     return;
   }
-  apiStatusText.textContent = `API: 已配置 (${r.keyHint || '****'})`;
+  apiStatusText.textContent = `${exchangeSel.value} API: 已配置 (${r.keyHint || '****'})`;
 }
 
 function toggleTradePanel() {
@@ -115,6 +119,7 @@ async function placeOrder(side) {
   }
   const payload = {
     symbolRaw: currentSymbol,
+    exchange: exchangeSel.value,
     side,
     type: orderTypeSel.value,
     leverage: Number(leverageInput.value || 0),
@@ -124,7 +129,7 @@ async function placeOrder(side) {
     stopLoss: slInput.value,
     reduceOnly: reduceOnlyChk.checked
   };
-  const r = await window.tvq.placeBinanceOrder(payload);
+  const r = await window.tvq.placeExchangeOrder(payload);
   if (r.ok) {
     alert('下单成功');
   } else {
@@ -188,25 +193,32 @@ if (window.tvq.onAlertTriggered) {
 
 toggleTradeBtn.addEventListener('click', toggleTradePanel);
 orderTypeSel.addEventListener('change', syncOrderTypeUI);
-cfgApiBtn.addEventListener('click', () => apiModal.classList.remove('hidden'));
+cfgApiBtn.addEventListener('click', () => {
+  apiExchangeSel.value = exchangeSel.value;
+  passphraseWrap.classList.toggle('hidden', !(apiExchangeSel.value === 'OKX' || apiExchangeSel.value === 'BITGET'));
+  apiModal.classList.remove('hidden');
+});
 apiMask.addEventListener('click', () => apiModal.classList.add('hidden'));
 closeApiBtn.addEventListener('click', () => apiModal.classList.add('hidden'));
 
 saveApiBtn.addEventListener('click', async () => {
+  const exchange = apiExchangeSel.value;
   const key = apiKeyInput.value.trim();
   const secret = apiSecretInput.value.trim();
-  const r = await window.tvq.setBinanceCredentials(key, secret);
+  const passphrase = passphraseInput.value.trim();
+  const r = await window.tvq.setExchangeCredentials(exchange, key, secret, passphrase);
   if (!r.ok) {
     alert(`保存失败: ${r.message || '未知错误'}`);
     return;
   }
   apiModal.classList.add('hidden');
   apiSecretInput.value = '';
+  passphraseInput.value = '';
   await refreshCredentialStatus();
 });
 
 testApiBtn.addEventListener('click', async () => {
-  const r = await window.tvq.testBinanceConnection();
+  const r = await window.tvq.testExchangeConnection(exchangeSel.value);
   alert(r.ok ? 'API 测试成功' : `API 测试失败: ${r.message || '未知错误'}`);
   await refreshCredentialStatus();
 });
@@ -216,6 +228,11 @@ shortBtn.addEventListener('click', () => placeOrder('SELL'));
 
 autoAlertChk.addEventListener('change', async () => {
   await window.tvq.setAutoAlertEnabled(autoAlertChk.checked);
+});
+exchangeSel.addEventListener('change', refreshCredentialStatus);
+apiExchangeSel.addEventListener('change', () => {
+  const needPass = apiExchangeSel.value === 'OKX' || apiExchangeSel.value === 'BITGET';
+  passphraseWrap.classList.toggle('hidden', !needPass);
 });
 
 function startTimers() {
@@ -247,6 +264,8 @@ document.addEventListener('visibilitychange', () => {
   await refreshStatus();
   await refreshUpdateStatus(true);
   await refreshCredentialStatus();
+  apiExchangeSel.value = exchangeSel.value;
+  passphraseWrap.classList.toggle('hidden', !(apiExchangeSel.value === 'OKX' || apiExchangeSel.value === 'BITGET'));
   const a = await window.tvq.getAutoAlertEnabled();
   autoAlertChk.checked = Boolean(a && a.enabled);
   syncOrderTypeUI();

@@ -39,6 +39,11 @@
 
       <div class="trade-panel hidden" id="tradePanel">
         <div class="trade-cred-row">
+          <select id="exchangeSel">
+            <option value="BINANCE">Binance</option>
+            <option value="OKX">OKX</option>
+            <option value="BITGET">Bitget</option>
+          </select>
           <span id="apiStatusText">API: 未配置</span>
           <button id="cfgApiBtn">配置 API</button>
           <button id="testApiBtn">测试</button>
@@ -86,11 +91,21 @@
     <div class="mask" id="apiMask"></div>
     <div class="card api-card">
       <div class="card-title">配置 Binance API</div>
+      <label>交易所
+        <select id="apiExchangeSel">
+          <option value="BINANCE">Binance</option>
+          <option value="OKX">OKX</option>
+          <option value="BITGET">Bitget</option>
+        </select>
+      </label>
       <label>API Key
         <input id="apiKeyInput" type="text" placeholder="请输入 API Key" />
       </label>
       <label>API Secret
         <input id="apiSecretInput" type="password" placeholder="请输入 API Secret" />
+      </label>
+      <label id="passphraseWrap" class="hidden">Passphrase
+        <input id="passphraseInput" type="password" placeholder="OKX/Bitget 需要 Passphrase" />
       </label>
       <div class="card-actions">
         <button id="saveApiBtn">保存</button>

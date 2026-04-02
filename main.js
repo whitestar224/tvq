@@ -342,6 +342,61 @@ function getCredentialPath() {
   return path.join(app.getPath('userData'), 'binance-cred.json');
 }
 
+function getExchangeCredentialPath() {
+  return path.join(app.getPath('userData'), 'exchange-credentials.json');
+}
+
+function normalizeExchangeId(exchange) {
+  const e = String(exchange || 'BINANCE').trim().toUpperCase();
+  if (e === 'OKX') return 'OKX';
+  if (e === 'BITGET') return 'BITGET';
+  return 'BINANCE';
+}
+
+function loadAllExchangeCredentials() {
+  const p = getExchangeCredentialPath();
+  if (!fs.existsSync(p)) return {};
+  try {
+    return JSON.parse(stripBom(fs.readFileSync(p, 'utf8'))) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAllExchangeCredentials(all) {
+  fs.writeFileSync(getExchangeCredentialPath(), JSON.stringify(all || {}, null, 2), 'utf8');
+}
+
+function saveExchangeCredentials(exchange, apiKey, apiSecret, passphrase = '') {
+  const ex = normalizeExchangeId(exchange);
+  const key = String(apiKey || '').trim();
+  const secret = String(apiSecret || '').trim();
+  const pp = String(passphrase || '').trim();
+  if (!key || !secret) throw new Error('API Key 和 Secret 不能为空');
+  if ((ex === 'OKX' || ex === 'BITGET') && !pp) throw new Error(`${ex} 需要 Passphrase`);
+
+  const all = loadAllExchangeCredentials();
+  all[ex] = {
+    apiKey: encryptMaybe(key),
+    apiSecret: encryptMaybe(secret),
+    passphrase: encryptMaybe(pp),
+    updatedAt: new Date().toISOString()
+  };
+  saveAllExchangeCredentials(all);
+}
+
+function loadExchangeCredentials(exchange) {
+  const ex = normalizeExchangeId(exchange);
+  const all = loadAllExchangeCredentials();
+  const data = all[ex] || {};
+  const apiKey = decryptMaybe(data.apiKey);
+  const apiSecret = decryptMaybe(data.apiSecret);
+  const passphrase = decryptMaybe(data.passphrase);
+  if (!apiKey || !apiSecret) return { configured: false, apiKey: '', apiSecret: '', passphrase: '' };
+  if ((ex === 'OKX' || ex === 'BITGET') && !passphrase) return { configured: false, apiKey: '', apiSecret: '', passphrase: '' };
+  return { configured: true, apiKey, apiSecret, passphrase, keyHint: `${apiKey.slice(0, 4)}****${apiKey.slice(-2)}` };
+}
+
 function encryptMaybe(text) {
   if (!text) return '';
   if (safeStorage && safeStorage.isEncryptionAvailable()) return `enc:${safeStorage.encryptString(text).toString('base64')}`;
@@ -378,6 +433,10 @@ function loadBinanceCredentials() {
 
 function signQuery(query, secret) {
   return crypto.createHmac('sha256', secret).update(query).digest('hex');
+}
+
+function signBase64(text, secret) {
+  return crypto.createHmac('sha256', secret).update(text).digest('base64');
 }
 
 async function binanceSignedRequest(method, apiPath, params, apiKey, apiSecret) {
@@ -428,7 +487,7 @@ async function getBinanceLastPrice(symbol) {
 }
 
 async function binancePlaceOrder(payload) {
-  const creds = loadBinanceCredentials();
+  const creds = payload._creds || loadBinanceCredentials();
   if (!creds.configured) throw new Error('请先配置交易所 API Key / Secret');
   const norm = normalizeSymbol(payload.symbolRaw || payload.symbol || '');
   if (!norm || !norm.pair) throw new Error('未识别到可下单币种');
@@ -500,10 +559,166 @@ async function binancePlaceOrder(payload) {
 }
 
 async function binanceTestConnection() {
-  const creds = loadBinanceCredentials();
+  const creds = arguments[0] || loadBinanceCredentials();
   if (!creds.configured) throw new Error('请先配置交易所 API Key / Secret');
   await binanceSignedRequest('GET', '/fapi/v2/balance', {}, creds.apiKey, creds.apiSecret);
   return { ok: true, keyHint: creds.keyHint || '' };
+}
+
+function pairToOkxInstId(pair) {
+  const p = splitPair(pair);
+  return `${p.base}-${p.quote}-SWAP`;
+}
+
+function pairToBitgetSymbol(pair) {
+  return pair;
+}
+
+async function okxRequest(method, pathWithQuery, body, creds) {
+  const ts = new Date().toISOString();
+  const bodyText = body ? JSON.stringify(body) : '';
+  const preHash = `${ts}${method.toUpperCase()}${pathWithQuery}${bodyText}`;
+  const sign = signBase64(preHash, creds.apiSecret);
+  const res = await fetch(`https://www.okx.com${pathWithQuery}`, {
+    method,
+    headers: {
+      'OK-ACCESS-KEY': creds.apiKey,
+      'OK-ACCESS-SIGN': sign,
+      'OK-ACCESS-TIMESTAMP': ts,
+      'OK-ACCESS-PASSPHRASE': creds.passphrase,
+      'Content-Type': 'application/json'
+    },
+    body: body ? bodyText : undefined
+  });
+  const json = await res.json();
+  if (!res.ok || String(json.code || '0') !== '0') {
+    throw new Error(json.msg || `OKX HTTP ${res.status}`);
+  }
+  return json.data || [];
+}
+
+async function bitgetRequest(method, pathWithQuery, body, creds) {
+  const ts = String(Date.now());
+  const bodyText = body ? JSON.stringify(body) : '';
+  const preHash = `${ts}${method.toUpperCase()}${pathWithQuery}${bodyText}`;
+  const sign = signBase64(preHash, creds.apiSecret);
+  const res = await fetch(`https://api.bitget.com${pathWithQuery}`, {
+    method,
+    headers: {
+      'ACCESS-KEY': creds.apiKey,
+      'ACCESS-SIGN': sign,
+      'ACCESS-TIMESTAMP': ts,
+      'ACCESS-PASSPHRASE': creds.passphrase,
+      'Content-Type': 'application/json',
+      locale: 'zh-CN'
+    },
+    body: body ? bodyText : undefined
+  });
+  const json = await res.json();
+  if (!res.ok || String(json.code || '0') !== '00000') {
+    throw new Error(json.msg || `Bitget HTTP ${res.status}`);
+  }
+  return json.data || {};
+}
+
+async function okxPlaceOrder(payload, creds) {
+  const norm = normalizeSymbol(payload.symbolRaw || payload.symbol || '');
+  if (!norm || !norm.pair) throw new Error('未识别到可下单币种');
+  const instId = pairToOkxInstId(norm.pair);
+  const side = String(payload.side || '').toUpperCase() === 'BUY' ? 'buy' : 'sell';
+  const type = String(payload.type || 'MARKET').toUpperCase();
+  const quantityUsdt = Number(payload.quantityUsdt || 0);
+  const leverage = Number(payload.leverage || 1);
+  if (quantityUsdt <= 0) throw new Error('数量(USDT)必须大于0');
+
+  const ticker = await fetchJson(`https://www.okx.com/api/v5/market/ticker?instId=${instId}`);
+  const last = Number((((ticker || {}).data || [])[0] || {}).last || 0);
+  if (!(last > 0)) throw new Error('OKX 价格获取失败');
+
+  const ins = await fetchJson(`https://www.okx.com/api/v5/public/instruments?instType=SWAP&instId=${instId}`);
+  const meta = (((ins || {}).data || [])[0]) || {};
+  const ctVal = Number(meta.ctVal || 1);
+  const lotSz = Number(meta.lotSz || 1);
+  const rawSz = (quantityUsdt * Math.max(1, leverage)) / (last * ctVal);
+  const sz = Math.max(lotSz, roundDownToStep(rawSz, lotSz));
+
+  await okxRequest('POST', '/api/v5/account/set-leverage', { instId, lever: String(Math.max(1, Math.floor(leverage))), mgnMode: 'cross' }, creds);
+
+  const body = {
+    instId,
+    tdMode: 'cross',
+    side,
+    ordType: type === 'LIMIT' ? 'limit' : 'market',
+    sz: formatNumber(sz, 8)
+  };
+  if (type === 'LIMIT') body.px = formatNumber(Number(payload.price || 0), 8);
+  return okxRequest('POST', '/api/v5/trade/order', body, creds);
+}
+
+async function bitgetPlaceOrder(payload, creds) {
+  const norm = normalizeSymbol(payload.symbolRaw || payload.symbol || '');
+  if (!norm || !norm.pair) throw new Error('未识别到可下单币种');
+  const symbol = pairToBitgetSymbol(norm.pair);
+  const side = String(payload.side || '').toUpperCase() === 'BUY' ? 'buy' : 'sell';
+  const type = String(payload.type || 'MARKET').toUpperCase();
+  const quantityUsdt = Number(payload.quantityUsdt || 0);
+  const leverage = Number(payload.leverage || 1);
+  if (quantityUsdt <= 0) throw new Error('数量(USDT)必须大于0');
+
+  const ticker = await fetchJson(`https://api.bitget.com/api/v2/mix/market/ticker?symbol=${symbol}&productType=USDT-FUTURES`);
+  const last = Number((((ticker || {}).data || [])[0] || {}).lastPr || 0);
+  if (!(last > 0)) throw new Error('Bitget 价格获取失败');
+
+  const contracts = await fetchJson('https://api.bitget.com/api/v2/mix/market/contracts?productType=USDT-FUTURES');
+  const meta = (((contracts || {}).data || []).find((x) => String(x.symbol || '').toUpperCase() === symbol) || {});
+  const minTradeNum = Number(meta.minTradeNum || 0.001);
+  const sizeMultiplier = Number(meta.sizeMultiplier || 0.001);
+  const rawSz = (quantityUsdt * Math.max(1, leverage)) / last;
+  const sz = Math.max(minTradeNum, roundDownToStep(rawSz, sizeMultiplier));
+
+  await bitgetRequest('POST', '/api/v2/mix/account/set-leverage', {
+    symbol,
+    productType: 'USDT-FUTURES',
+    marginCoin: 'USDT',
+    leverage: String(Math.max(1, Math.floor(leverage)))
+  }, creds);
+
+  const body = {
+    symbol,
+    productType: 'USDT-FUTURES',
+    marginMode: 'crossed',
+    marginCoin: 'USDT',
+    size: formatNumber(sz, 8),
+    side,
+    orderType: type === 'LIMIT' ? 'limit' : 'market',
+    force: 'gtc'
+  };
+  if (type === 'LIMIT') body.price = formatNumber(Number(payload.price || 0), 8);
+  return bitgetRequest('POST', '/api/v2/mix/order/place-order', body, creds);
+}
+
+async function placeOrderByExchange(payload) {
+  const ex = normalizeExchangeId(payload.exchange);
+  const creds = loadExchangeCredentials(ex);
+  if (!creds.configured) throw new Error(`请先配置 ${ex} API`);
+  if (ex === 'OKX') return okxPlaceOrder(payload, creds);
+  if (ex === 'BITGET') return bitgetPlaceOrder(payload, creds);
+  return binancePlaceOrder({ ...payload, _creds: creds });
+}
+
+async function testExchangeConnection(exchange) {
+  const ex = normalizeExchangeId(exchange);
+  const creds = loadExchangeCredentials(ex);
+  if (!creds.configured) throw new Error(`请先配置 ${ex} API`);
+  if (ex === 'OKX') {
+    await okxRequest('GET', '/api/v5/account/balance?ccy=USDT', null, creds);
+    return { ok: true, keyHint: creds.keyHint || '' };
+  }
+  if (ex === 'BITGET') {
+    await bitgetRequest('GET', '/api/v2/mix/account/account?symbol=BTCUSDT&productType=USDT-FUTURES&marginCoin=USDT', null, creds);
+    return { ok: true, keyHint: creds.keyHint || '' };
+  }
+  return binanceTestConnection(creds);
 }
 
 ipcMain.handle('status:get', async (_evt, force) => detectStatus(Boolean(force)));
@@ -531,28 +746,30 @@ ipcMain.handle('file:open', async (_evt, p) => {
   return { ok: true };
 });
 
-ipcMain.handle('binance:credentials:status', async () => {
+ipcMain.handle('exchange:credentials:status', async (_evt, exchange) => {
   try {
-    const c = loadBinanceCredentials();
-    return { ok: true, configured: c.configured, keyHint: c.keyHint || '' };
+    const ex = normalizeExchangeId(exchange);
+    const c = loadExchangeCredentials(ex);
+    return { ok: true, exchange: ex, configured: c.configured, keyHint: c.keyHint || '' };
   } catch (e) {
     return { ok: false, configured: false, message: e.message };
   }
 });
-ipcMain.handle('binance:credentials:set', async (_evt, apiKey, apiSecret) => {
+ipcMain.handle('exchange:credentials:set', async (_evt, exchange, apiKey, apiSecret, passphrase) => {
   try {
-    saveBinanceCredentials(apiKey, apiSecret);
-    const c = loadBinanceCredentials();
-    return { ok: true, configured: c.configured, keyHint: c.keyHint || '' };
+    const ex = normalizeExchangeId(exchange);
+    saveExchangeCredentials(ex, apiKey, apiSecret, passphrase);
+    const c = loadExchangeCredentials(ex);
+    return { ok: true, exchange: ex, configured: c.configured, keyHint: c.keyHint || '' };
   } catch (e) {
     return { ok: false, message: e.message };
   }
 });
-ipcMain.handle('binance:test', async () => {
-  try { return await binanceTestConnection(); } catch (e) { return { ok: false, message: e.message }; }
+ipcMain.handle('exchange:test', async (_evt, exchange) => {
+  try { return await testExchangeConnection(exchange); } catch (e) { return { ok: false, message: e.message }; }
 });
-ipcMain.handle('binance:order', async (_evt, payload) => {
-  try { return { ok: true, data: await binancePlaceOrder(payload || {}) }; } catch (e) { return { ok: false, message: e.message }; }
+ipcMain.handle('exchange:order', async (_evt, payload) => {
+  try { return { ok: true, data: await placeOrderByExchange(payload || {}) }; } catch (e) { return { ok: false, message: e.message }; }
 });
 
 ipcMain.handle('autoalert:get', async () => ({ ok: true, enabled: autoAlertEnabled }));
