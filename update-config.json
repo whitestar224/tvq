@@ -1,6 +1,6 @@
 ﻿{
   "enabled": true,
-  "checkIntervalMinutes": 30,
-  "manifestUrl": "",
+  "checkIntervalMinutes": 15,
+  "manifestUrl": "https://raw.githubusercontent.com/whitestar224/tvq/main/update-manifest.json",
   "channel": "stable"
 }

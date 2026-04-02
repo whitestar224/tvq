@@ -45,6 +45,7 @@ function createWindow() {
     minWidth: 380,
     minHeight: 220,
     frame: false,
+    alwaysOnTop: true,
     backgroundColor: '#0f172a',
     title: 'TVQ',
     icon: path.join(__dirname, 'TVQ.ico'),
@@ -52,6 +53,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
+    }
+  });
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.on('blur', () => {
+    if (win && !win.isDestroyed()) {
+      win.setAlwaysOnTop(true, 'screen-saver');
     }
   });
   win.loadFile('index.html');
