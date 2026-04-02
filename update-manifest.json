@@ -1,7 +1,7 @@
 ﻿{
-  "version": "1.0.3",
-  "notes": "UI 调整：移除立即识别按钮，返佣按钮移动到 Quick Jump 标题旁。",
-  "setupUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.3/TVQ-Setup-1.0.3.exe",
-  "portableUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.3/TVQ-Portable-1.0.3.exe",
+  "version": "1.0.4",
+  "notes": "新增开仓面板止盈/止损；数量改为 USDT 计价并自动换算下单数量。",
+  "setupUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.4/TVQ-Setup-1.0.4.exe",
+  "portableUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.4/TVQ-Portable-1.0.4.exe",
   "publishedAt": "2026-04-02"
 }

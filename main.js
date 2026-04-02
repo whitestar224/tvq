@@ -1,9 +1,9 @@
-﻿const { app, BrowserWindow, ipcMain, shell, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Tray, Menu, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const http = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 let win;
@@ -13,12 +13,20 @@ let updateCache = null;
 let detectInFlight = null;
 let detectLastResult = null;
 let detectLastAt = 0;
+let autoAlertEnabled = false;
+let lastAlertSymbol = '';
+let lastAlertAt = 0;
 
+const BINANCE_API_BASE = 'https://fapi.binance.com';
 const AHK_CANDIDATES = [
   'C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe',
   'C:/Program Files/AutoHotkey/v2/AutoHotkey.exe',
   'C:/Program Files/AutoHotkey/AutoHotkey64.exe'
 ];
+
+function stripBom(s) {
+  return String(s || '').replace(/^\uFEFF/, '');
+}
 
 function findAhkExe() {
   for (const p of AHK_CANDIDATES) {
@@ -33,8 +41,7 @@ function ensureDetectScriptPath() {
     const runtimeDir = path.join(app.getPath('userData'), 'runtime');
     if (!fs.existsSync(runtimeDir)) fs.mkdirSync(runtimeDir, { recursive: true });
     const target = path.join(runtimeDir, 'tvq_detect.ahk');
-    const content = fs.readFileSync(src, 'utf8');
-    fs.writeFileSync(target, content, 'utf8');
+    fs.writeFileSync(target, fs.readFileSync(src, 'utf8'), 'utf8');
     detectScriptPath = target;
   } catch {
     detectScriptPath = path.join(__dirname, 'tvq_detect.ahk');
@@ -61,9 +68,7 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.on('blur', () => {
-    if (win && !win.isDestroyed()) {
-      win.setAlwaysOnTop(true, 'screen-saver');
-    }
+    if (win && !win.isDestroyed()) win.setAlwaysOnTop(true, 'screen-saver');
   });
   win.loadFile('index.html');
 }
@@ -71,10 +76,10 @@ function createWindow() {
 function createTray() {
   tray = new Tray(path.join(__dirname, 'TVQ.ico'));
   const menu = Menu.buildFromTemplate([
-    { label: '显示 TVQ', click: () => { if (win) win.show(); } },
-    { label: '隐藏 TVQ', click: () => { if (win) win.hide(); } },
+    { label: 'Show TVQ', click: () => { if (win) win.show(); } },
+    { label: 'Hide TVQ', click: () => { if (win) win.hide(); } },
     { type: 'separator' },
-    { label: '退出', click: () => app.quit() }
+    { label: 'Exit', click: () => app.quit() }
   ]);
   tray.setToolTip('TVQ');
   tray.setContextMenu(menu);
@@ -117,30 +122,18 @@ end try
 return tvTitle
 `;
     execFile('/usr/bin/osascript', ['-e', script], { timeout: 1500 }, (err, stdout) => {
-      if (err) {
-        resolve({ ok: false, monitor: 1, symbol: '', message: '检测失败' });
-        return;
-      }
+      if (err) return resolve({ ok: false, monitor: 1, symbol: '', message: 'Detect failed' });
       const title = String(stdout || '').trim();
       const symbol = extractSymbolFromText(title);
-      resolve({
-        ok: symbol.length > 0,
-        monitor: 1,
-        symbol,
-        message: symbol ? `自动: ${symbol}` : '未识别到 TradingView 币种'
-      });
+      resolve({ ok: symbol.length > 0, monitor: 1, symbol, message: symbol ? `Auto: ${symbol}` : 'TradingView symbol not found' });
     });
   });
 }
 
 function detectStatus(force = false) {
   const now = Date.now();
-  if (!force && detectLastResult && (now - detectLastAt) < 1500) {
-    return Promise.resolve(detectLastResult);
-  }
-  if (!force && detectInFlight) {
-    return detectInFlight;
-  }
+  if (!force && detectLastResult && (now - detectLastAt) < 1500) return Promise.resolve(detectLastResult);
+  if (!force && detectInFlight) return detectInFlight;
 
   detectInFlight = new Promise((resolve) => {
     if (process.platform === 'darwin') {
@@ -152,47 +145,37 @@ function detectStatus(force = false) {
       });
       return;
     }
-
     if (process.platform !== 'win32') {
-      const out = { ok: false, monitor: 1, symbol: '', message: '当前系统暂不支持自动识别' };
+      const out = { ok: false, monitor: 1, symbol: '', message: 'Unsupported OS' };
       detectLastResult = out;
       detectLastAt = Date.now();
       detectInFlight = null;
-      resolve(out);
-      return;
+      return resolve(out);
     }
 
     const ahkExe = findAhkExe();
     if (!ahkExe) {
-      const out = { ok: false, monitor: 1, symbol: '', message: '未找到 AutoHotkey v2' };
+      const out = { ok: false, monitor: 1, symbol: '', message: 'AutoHotkey v2 not found' };
       detectLastResult = out;
       detectLastAt = Date.now();
       detectInFlight = null;
-      resolve(out);
-      return;
+      return resolve(out);
     }
 
     const center = getCenterPoint();
     const script = detectScriptPath || path.join(__dirname, 'tvq_detect.ahk');
     execFile(ahkExe, [script, String(center.x), String(center.y)], { timeout: 1500 }, (err, stdout) => {
       if (err) {
-        const out = { ok: false, monitor: 1, symbol: '', message: '检测失败' };
+        const out = { ok: false, monitor: 1, symbol: '', message: 'Detect failed' };
         detectLastResult = out;
         detectLastAt = Date.now();
         detectInFlight = null;
-        resolve(out);
-        return;
+        return resolve(out);
       }
-      const line = String(stdout || '').trim();
-      const parts = line.split('|');
-      const monitor = Number(parts[0] || 1);
-      const symbol = parts[1] || '';
-      const out = {
-        ok: symbol.length > 0,
-        monitor,
-        symbol,
-        message: symbol ? `屏幕${monitor} 自动: ${symbol}` : `屏幕${monitor} 未识别到 TradingView 币种`
-      };
+      const [m, sym] = String(stdout || '').trim().split('|');
+      const monitor = Number(m || 1);
+      const symbol = sym || '';
+      const out = { ok: !!symbol, monitor, symbol, message: symbol ? `Screen ${monitor} auto: ${symbol}` : `Screen ${monitor} no symbol` };
       detectLastResult = out;
       detectLastAt = Date.now();
       detectInFlight = null;
@@ -200,6 +183,36 @@ function detectStatus(force = false) {
     });
   });
   return detectInFlight;
+}
+
+function detectAlertSymbolWin() {
+  return new Promise((resolve) => {
+    const ahkExe = findAhkExe();
+    if (!ahkExe) return resolve('');
+    const script = detectScriptPath || path.join(__dirname, 'tvq_detect.ahk');
+    execFile(ahkExe, [script, '0', '0', 'alert'], { timeout: 1200 }, (err, stdout) => {
+      if (err) return resolve('');
+      resolve(String(stdout || '').trim());
+    });
+  });
+}
+
+async function pollAlertAndJump() {
+  if (!autoAlertEnabled || process.platform !== 'win32') return;
+  const sym = await detectAlertSymbolWin();
+  if (!sym) return;
+
+  const now = Date.now();
+  if (sym === lastAlertSymbol && (now - lastAlertAt) < 8000) return;
+
+  const norm = normalizeSymbol(sym);
+  if (!norm || !norm.pair) return;
+
+  lastAlertSymbol = sym;
+  lastAlertAt = now;
+  const url = buildContractUrl(norm.exchange || 'BINANCE', norm.pair);
+  await shell.openExternal(url);
+  if (win && !win.isDestroyed()) win.webContents.send('alert:triggered', { symbol: sym, url });
 }
 
 function normalizeSymbol(raw) {
@@ -220,9 +233,7 @@ function normalizeSymbol(raw) {
 function splitPair(pair) {
   const quotes = ['USDT', 'USDC', 'USD', 'BUSD', 'FDUSD', 'BTC', 'ETH', 'EUR', 'TRY'];
   for (const q of quotes) {
-    if (pair.length > q.length && pair.endsWith(q)) {
-      return { base: pair.slice(0, pair.length - q.length), quote: q };
-    }
+    if (pair.length > q.length && pair.endsWith(q)) return { base: pair.slice(0, pair.length - q.length), quote: q };
   }
   return { base: pair, quote: 'USDT' };
 }
@@ -230,21 +241,14 @@ function splitPair(pair) {
 function buildContractUrl(exchange, pair) {
   const p = splitPair(pair);
   switch (exchange) {
-    case 'BINANCE':
-      return `https://www.binance.com/zh-CN/futures/${pair}`;
-    case 'BYBIT':
-      return `https://www.bybit.com/trade/usdt/${pair}`;
-    case 'OKX':
-      return `https://www.okx.com/cn/trade-swap/${p.base.toLowerCase()}-${p.quote.toLowerCase()}-swap`;
-    case 'BITGET':
-      return `https://www.bitget.com/zh-CN/futures/usdt/${p.base}${p.quote}`;
+    case 'BINANCE': return `https://www.binance.com/zh-CN/futures/${pair}`;
+    case 'BYBIT': return `https://www.bybit.com/trade/usdt/${pair}`;
+    case 'OKX': return `https://www.okx.com/cn/trade-swap/${p.base.toLowerCase()}-${p.quote.toLowerCase()}-swap`;
+    case 'BITGET': return `https://www.bitget.com/zh-CN/futures/usdt/${p.base}${p.quote}`;
     case 'GATE':
-    case 'GATEIO':
-      return `https://www.gate.io/zh/futures/USDT/${p.base}_${p.quote}`;
-    case 'MEXC':
-      return `https://www.mexc.com/zh-CN/futures/${pair}`;
-    default:
-      return `https://www.binance.com/zh-CN/futures/${pair}`;
+    case 'GATEIO': return `https://www.gate.io/zh/futures/USDT/${p.base}_${p.quote}`;
+    case 'MEXC': return `https://www.mexc.com/zh-CN/futures/${pair}`;
+    default: return `https://www.binance.com/zh-CN/futures/${pair}`;
   }
 }
 
@@ -265,41 +269,18 @@ function isNewer(latest, current) {
   return false;
 }
 
-function stripBom(s) {
-  return String(s || '').replace(/^\uFEFF/, '');
-}
-
 function getUpdateConfig() {
-  const bundledDefaults = {
-    enabled: false,
-    checkIntervalMinutes: 30,
-    manifestUrl: '',
-    channel: 'stable'
-  };
-
+  const defaults = { enabled: false, checkIntervalMinutes: 30, manifestUrl: '', channel: 'stable' };
   const userCfg = path.join(app.getPath('userData'), 'update-config.json');
   const bundledCfg = path.join(__dirname, 'update-config.json');
-
   try {
-    let bundled = {};
-    let user = {};
-    if (fs.existsSync(bundledCfg)) {
-      bundled = JSON.parse(stripBom(fs.readFileSync(bundledCfg, 'utf8')));
-    }
-    if (fs.existsSync(userCfg)) {
-      user = JSON.parse(stripBom(fs.readFileSync(userCfg, 'utf8')));
-    }
-
-    const cfg = { ...bundledDefaults, ...bundled, ...user };
-    if (!cfg.manifestUrl && bundled.manifestUrl) {
-      cfg.manifestUrl = bundled.manifestUrl;
-    }
-    if (typeof cfg.enabled !== 'boolean') {
-      cfg.enabled = Boolean(cfg.enabled);
-    }
+    const bundled = fs.existsSync(bundledCfg) ? JSON.parse(stripBom(fs.readFileSync(bundledCfg, 'utf8'))) : {};
+    const user = fs.existsSync(userCfg) ? JSON.parse(stripBom(fs.readFileSync(userCfg, 'utf8'))) : {};
+    const cfg = { ...defaults, ...bundled, ...user };
+    if (!cfg.manifestUrl && bundled.manifestUrl) cfg.manifestUrl = bundled.manifestUrl;
     return cfg;
   } catch {
-    return bundledDefaults;
+    return defaults;
   }
 }
 
@@ -307,23 +288,13 @@ function fetchJson(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
     client.get(url, { timeout: 6000 }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        fetchJson(res.headers.location).then(resolve).catch(reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
-        return;
-      }
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) return fetchJson(res.headers.location).then(resolve).catch(reject);
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
       let raw = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => { raw += chunk; });
       res.on('end', () => {
-        try {
-          resolve(JSON.parse(stripBom(raw)));
-        } catch (e) {
-          reject(e);
-        }
+        try { resolve(JSON.parse(stripBom(raw))); } catch (e) { reject(e); }
       });
     }).on('error', reject);
   });
@@ -331,58 +302,24 @@ function fetchJson(url) {
 
 async function checkForUpdates() {
   const cfg = getUpdateConfig();
-  if (!cfg.enabled || !cfg.manifestUrl) {
-    return {
-      ok: false,
-      enabled: false,
-      hasUpdate: false,
-      currentVersion: app.getVersion(),
-      message: '未配置更新源'
-    };
-  }
-
+  if (!cfg.enabled || !cfg.manifestUrl) return { ok: false, enabled: false, hasUpdate: false, currentVersion: app.getVersion(), message: '未配置更新源' };
   const manifest = await fetchJson(cfg.manifestUrl);
   const latestVersion = String(manifest.version || '').trim();
-  if (!latestVersion) {
-    return { ok: false, enabled: true, hasUpdate: false, currentVersion: app.getVersion(), message: '更新清单无效' };
-  }
-
+  if (!latestVersion) return { ok: false, enabled: true, hasUpdate: false, currentVersion: app.getVersion(), message: '更新清单无效' };
   const hasUpdate = isNewer(latestVersion, app.getVersion());
-  updateCache = {
-    latestVersion,
-    notes: manifest.notes || '',
-    setupUrl: manifest.setupUrl || '',
-    portableUrl: manifest.portableUrl || '',
-    publishedAt: manifest.publishedAt || ''
-  };
-
-  return {
-    ok: true,
-    enabled: true,
-    hasUpdate,
-    currentVersion: app.getVersion(),
-    ...updateCache,
-    message: hasUpdate ? `发现新版本 ${latestVersion}` : '当前已是最新版'
-  };
+  updateCache = { latestVersion, notes: manifest.notes || '', setupUrl: manifest.setupUrl || '', portableUrl: manifest.portableUrl || '', publishedAt: manifest.publishedAt || '' };
+  return { ok: true, enabled: true, hasUpdate, currentVersion: app.getVersion(), ...updateCache, message: hasUpdate ? `发现新版本 ${latestVersion}` : '当前已是最新版' };
 }
 
 function downloadToFile(fileUrl, outPath) {
   return new Promise((resolve, reject) => {
     const client = fileUrl.startsWith('https') ? https : http;
     const req = client.get(fileUrl, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        downloadToFile(res.headers.location, outPath).then(resolve).catch(reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}`));
-        return;
-      }
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) return downloadToFile(res.headers.location, outPath).then(resolve).catch(reject);
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
       const file = fs.createWriteStream(outPath);
       res.pipe(file);
-      file.on('finish', () => {
-        file.close(() => resolve(outPath));
-      });
+      file.on('finish', () => file.close(() => resolve(outPath)));
       file.on('error', reject);
     });
     req.on('error', reject);
@@ -391,22 +328,182 @@ function downloadToFile(fileUrl, outPath) {
 
 async function downloadUpdate(kind = 'setup') {
   const info = updateCache || await checkForUpdates();
-  if (!info || !info.hasUpdate) {
-    return { ok: false, message: '当前没有可更新版本' };
-  }
-
+  if (!info || !info.hasUpdate) return { ok: false, message: '当前没有可更新版本' };
   const dlUrl = (kind === 'portable' ? info.portableUrl : info.setupUrl) || info.setupUrl || info.portableUrl;
-  if (!dlUrl) {
-    return { ok: false, message: '更新链接缺失' };
-  }
-
+  if (!dlUrl) return { ok: false, message: '更新链接缺失' };
   const downloadDir = path.join(app.getPath('downloads'), 'TVQ-Updates');
   if (!fs.existsSync(downloadDir)) fs.mkdirSync(downloadDir, { recursive: true });
-
-  const guessedName = dlUrl.split('/').pop() || `TVQ-${info.latestVersion}.exe`;
-  const outPath = path.join(downloadDir, guessedName);
+  const outPath = path.join(downloadDir, dlUrl.split('/').pop() || `TVQ-${info.latestVersion}.exe`);
   await downloadToFile(dlUrl, outPath);
   return { ok: true, file: outPath, message: '下载完成' };
+}
+
+function getCredentialPath() {
+  return path.join(app.getPath('userData'), 'binance-cred.json');
+}
+
+function encryptMaybe(text) {
+  if (!text) return '';
+  if (safeStorage && safeStorage.isEncryptionAvailable()) return `enc:${safeStorage.encryptString(text).toString('base64')}`;
+  return `plain:${text}`;
+}
+
+function decryptMaybe(stored) {
+  const s = String(stored || '');
+  if (!s) return '';
+  if (s.startsWith('enc:')) {
+    if (!(safeStorage && safeStorage.isEncryptionAvailable())) return '';
+    return safeStorage.decryptString(Buffer.from(s.slice(4), 'base64'));
+  }
+  if (s.startsWith('plain:')) return s.slice(6);
+  return '';
+}
+
+function saveBinanceCredentials(apiKey, apiSecret) {
+  const key = String(apiKey || '').trim();
+  const secret = String(apiSecret || '').trim();
+  if (!key || !secret) throw new Error('API Key 和 Secret 不能为空');
+  fs.writeFileSync(getCredentialPath(), JSON.stringify({ apiKey: encryptMaybe(key), apiSecret: encryptMaybe(secret), updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+}
+
+function loadBinanceCredentials() {
+  const p = getCredentialPath();
+  if (!fs.existsSync(p)) return { configured: false, apiKey: '', apiSecret: '' };
+  const data = JSON.parse(stripBom(fs.readFileSync(p, 'utf8')));
+  const apiKey = decryptMaybe(data.apiKey);
+  const apiSecret = decryptMaybe(data.apiSecret);
+  if (!apiKey || !apiSecret) return { configured: false, apiKey: '', apiSecret: '' };
+  return { configured: true, apiKey, apiSecret, keyHint: `${apiKey.slice(0, 4)}****${apiKey.slice(-2)}` };
+}
+
+function signQuery(query, secret) {
+  return crypto.createHmac('sha256', secret).update(query).digest('hex');
+}
+
+async function binanceSignedRequest(method, apiPath, params, apiKey, apiSecret) {
+  const baseParams = { ...params, timestamp: Date.now(), recvWindow: 5000 };
+  const query = new URLSearchParams(baseParams).toString();
+  const fullQuery = `${query}&signature=${signQuery(query, apiSecret)}`;
+  const url = `${BINANCE_API_BASE}${apiPath}`;
+  const res = await fetch(method === 'GET' ? `${url}?${fullQuery}` : url, {
+    method,
+    headers: { 'X-MBX-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: method === 'GET' ? undefined : fullQuery
+  });
+  const text = await res.text();
+  let json = {};
+  try { json = JSON.parse(text); } catch { json = { msg: text }; }
+  if (!res.ok) throw new Error(json.msg || `HTTP ${res.status}`);
+  return json;
+}
+
+function roundDownToStep(value, step) {
+  if (!step || step <= 0) return value;
+  return Math.floor(value / step) * step;
+}
+
+function formatNumber(n, maxDp = 12) {
+  const s = Number(n).toFixed(maxDp);
+  return s.replace(/\.?0+$/, '');
+}
+
+async function getBinanceSymbolMeta(symbol) {
+  const info = await fetchJson(`${BINANCE_API_BASE}/fapi/v1/exchangeInfo`);
+  const s = (info.symbols || []).find((x) => x.symbol === symbol);
+  if (!s) {
+    throw new Error(`交易对不存在: ${symbol}`);
+  }
+  const lot = (s.filters || []).find((f) => f.filterType === 'LOT_SIZE') || {};
+  const priceFilter = (s.filters || []).find((f) => f.filterType === 'PRICE_FILTER') || {};
+  return {
+    stepSize: Number(lot.stepSize || 0.001),
+    minQty: Number(lot.minQty || 0.001),
+    tickSize: Number(priceFilter.tickSize || 0.0001)
+  };
+}
+
+async function getBinanceLastPrice(symbol) {
+  const p = await fetchJson(`${BINANCE_API_BASE}/fapi/v1/ticker/price?symbol=${symbol}`);
+  return Number(p.price || 0);
+}
+
+async function binancePlaceOrder(payload) {
+  const creds = loadBinanceCredentials();
+  if (!creds.configured) throw new Error('请先配置交易所 API Key / Secret');
+  const norm = normalizeSymbol(payload.symbolRaw || payload.symbol || '');
+  if (!norm || !norm.pair) throw new Error('未识别到可下单币种');
+
+  const symbol = norm.pair;
+  const side = String(payload.side || '').toUpperCase();
+  const type = String(payload.type || 'MARKET').toUpperCase();
+  const quantityUsdt = Number(payload.quantityUsdt || payload.quantity || 0);
+  const price = String(payload.price || '').trim();
+  const takeProfit = Number(payload.takeProfit || 0);
+  const stopLoss = Number(payload.stopLoss || 0);
+  const reduceOnly = Boolean(payload.reduceOnly);
+  const leverage = Number(payload.leverage || 0);
+
+  if (!['BUY', 'SELL'].includes(side)) throw new Error('下单方向无效');
+  if (!['MARKET', 'LIMIT'].includes(type)) throw new Error('订单类型仅支持市价/限价');
+  if (!quantityUsdt || quantityUsdt <= 0) throw new Error('数量(USDT)必须大于0');
+
+  const meta = await getBinanceSymbolMeta(symbol);
+  const basePrice = type === 'LIMIT' ? Number(price) : await getBinanceLastPrice(symbol);
+  if (!basePrice || basePrice <= 0) {
+    throw new Error('无法获取有效价格用于换算数量');
+  }
+
+  if (leverage > 0) {
+    await binanceSignedRequest('POST', '/fapi/v1/leverage', { symbol, leverage: Math.min(125, Math.max(1, Math.floor(leverage))) }, creds.apiKey, creds.apiSecret);
+  }
+
+  const lev = leverage > 0 ? leverage : 1;
+  const rawQty = (quantityUsdt * lev) / basePrice;
+  const qty = roundDownToStep(rawQty, meta.stepSize);
+  if (qty < meta.minQty) {
+    throw new Error(`数量过小，最小下单数量约为 ${meta.minQty}`);
+  }
+
+  const order = { symbol, side, type, quantity: formatNumber(qty), reduceOnly: reduceOnly ? 'true' : 'false' };
+  if (type === 'LIMIT') {
+    if (!price || Number(price) <= 0) throw new Error('限价单必须填写价格');
+    order.price = formatNumber(Number(price), 8);
+    order.timeInForce = 'GTC';
+  }
+
+  const mainOrder = await binanceSignedRequest('POST', '/fapi/v1/order', order, creds.apiKey, creds.apiSecret);
+  const closeSide = side === 'BUY' ? 'SELL' : 'BUY';
+
+  if (takeProfit > 0) {
+    await binanceSignedRequest('POST', '/fapi/v1/order', {
+      symbol,
+      side: closeSide,
+      type: 'TAKE_PROFIT_MARKET',
+      stopPrice: formatNumber(takeProfit, 8),
+      closePosition: 'true',
+      workingType: 'MARK_PRICE'
+    }, creds.apiKey, creds.apiSecret);
+  }
+
+  if (stopLoss > 0) {
+    await binanceSignedRequest('POST', '/fapi/v1/order', {
+      symbol,
+      side: closeSide,
+      type: 'STOP_MARKET',
+      stopPrice: formatNumber(stopLoss, 8),
+      closePosition: 'true',
+      workingType: 'MARK_PRICE'
+    }, creds.apiKey, creds.apiSecret);
+  }
+
+  return mainOrder;
+}
+
+async function binanceTestConnection() {
+  const creds = loadBinanceCredentials();
+  if (!creds.configured) throw new Error('请先配置交易所 API Key / Secret');
+  await binanceSignedRequest('GET', '/fapi/v2/balance', {}, creds.apiKey, creds.apiSecret);
+  return { ok: true, keyHint: creds.keyHint || '' };
 }
 
 ipcMain.handle('status:get', async (_evt, force) => detectStatus(Boolean(force)));
@@ -417,30 +514,51 @@ ipcMain.handle('contract:open', async (_evt, symbol) => {
   await shell.openExternal(url);
   return { ok: true, url };
 });
-ipcMain.handle('win:min', () => { if (win) win.minimize(); });
 ipcMain.handle('win:max', () => { if (win) win.isMaximized() ? win.unmaximize() : win.maximize(); });
 ipcMain.handle('win:hide', () => { if (win) win.hide(); });
 ipcMain.handle('win:close', () => app.quit());
 ipcMain.handle('link:open', (_evt, url) => shell.openExternal(url));
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('update:check', async () => {
-  try {
-    return await checkForUpdates();
-  } catch (e) {
-    return { ok: false, enabled: true, hasUpdate: false, currentVersion: app.getVersion(), message: `更新检测失败: ${e.message}` };
-  }
+  try { return await checkForUpdates(); } catch (e) { return { ok: false, enabled: true, hasUpdate: false, currentVersion: app.getVersion(), message: `更新检测失败: ${e.message}` }; }
 });
 ipcMain.handle('update:download', async (_evt, kind) => {
-  try {
-    return await downloadUpdate(kind);
-  } catch (e) {
-    return { ok: false, message: `下载失败: ${e.message}` };
-  }
+  try { return await downloadUpdate(kind); } catch (e) { return { ok: false, message: `下载失败: ${e.message}` }; }
 });
 ipcMain.handle('file:open', async (_evt, p) => {
   if (!p) return { ok: false };
   await shell.openPath(p);
   return { ok: true };
+});
+
+ipcMain.handle('binance:credentials:status', async () => {
+  try {
+    const c = loadBinanceCredentials();
+    return { ok: true, configured: c.configured, keyHint: c.keyHint || '' };
+  } catch (e) {
+    return { ok: false, configured: false, message: e.message };
+  }
+});
+ipcMain.handle('binance:credentials:set', async (_evt, apiKey, apiSecret) => {
+  try {
+    saveBinanceCredentials(apiKey, apiSecret);
+    const c = loadBinanceCredentials();
+    return { ok: true, configured: c.configured, keyHint: c.keyHint || '' };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+});
+ipcMain.handle('binance:test', async () => {
+  try { return await binanceTestConnection(); } catch (e) { return { ok: false, message: e.message }; }
+});
+ipcMain.handle('binance:order', async (_evt, payload) => {
+  try { return { ok: true, data: await binancePlaceOrder(payload || {}) }; } catch (e) { return { ok: false, message: e.message }; }
+});
+
+ipcMain.handle('autoalert:get', async () => ({ ok: true, enabled: autoAlertEnabled }));
+ipcMain.handle('autoalert:set', async (_evt, enabled) => {
+  autoAlertEnabled = Boolean(enabled);
+  return { ok: true, enabled: autoAlertEnabled };
 });
 
 app.whenReady().then(() => {
@@ -453,11 +571,13 @@ app.whenReady().then(() => {
   setInterval(async () => {
     try {
       const r = await checkForUpdates();
-      if (r.hasUpdate && win && !win.isDestroyed()) {
-        win.webContents.send('update:found', r);
-      }
+      if (r.hasUpdate && win && !win.isDestroyed()) win.webContents.send('update:found', r);
     } catch {}
   }, ms);
+
+  setInterval(async () => {
+    try { await pollAlertAndJump(); } catch {}
+  }, 1200);
 });
 
 app.on('window-all-closed', (e) => {

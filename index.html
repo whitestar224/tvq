@@ -32,11 +32,69 @@
         <button id="openBtn" class="primary" disabled>打开合约</button>
       </div>
 
+      <div class="trade-toggle-row">
+        <button id="toggleTradeBtn">开仓面板</button>
+        <label class="auto-alert-label"><input type="checkbox" id="autoAlertChk" /> 警报自动开仓页</label>
+      </div>
+
+      <div class="trade-panel hidden" id="tradePanel">
+        <div class="trade-cred-row">
+          <span id="apiStatusText">API: 未配置</span>
+          <button id="cfgApiBtn">配置 API</button>
+          <button id="testApiBtn">测试</button>
+        </div>
+        <div class="trade-grid">
+          <label>类型
+            <select id="orderTypeSel">
+              <option value="MARKET">市价</option>
+              <option value="LIMIT">限价</option>
+            </select>
+          </label>
+          <label>杠杆
+            <input id="leverageInput" type="number" min="1" max="125" value="3" />
+          </label>
+          <label>数量(USDT)
+            <input id="qtyInput" type="number" min="1" step="1" placeholder="例如 50 USDT" />
+          </label>
+          <label id="priceWrap" class="price-wrap hidden">价格
+            <input id="priceInput" type="number" min="0.0000001" step="0.0000001" placeholder="限价必填" />
+          </label>
+          <label>止盈(TP)
+            <input id="tpInput" type="number" min="0.0000001" step="0.0000001" placeholder="可选，例如 1.25" />
+          </label>
+          <label>止损(SL)
+            <input id="slInput" type="number" min="0.0000001" step="0.0000001" placeholder="可选，例如 1.10" />
+          </label>
+          <label class="reduce-only"><input type="checkbox" id="reduceOnlyChk" /> 只减仓</label>
+        </div>
+        <div class="trade-actions">
+          <button id="longBtn" class="long-btn">买入/做多</button>
+          <button id="shortBtn" class="short-btn">卖出/做空</button>
+        </div>
+      </div>
+
       <div class="update-row">
         <span id="verText">当前版本: -</span>
         <span id="updText">更新状态: 检查中...</span>
         <button id="checkUpdBtn">检查更新</button>
         <button id="dlUpdBtn" disabled>下载更新</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="apiModal">
+    <div class="mask" id="apiMask"></div>
+    <div class="card api-card">
+      <div class="card-title">配置 Binance API</div>
+      <label>API Key
+        <input id="apiKeyInput" type="text" placeholder="请输入 API Key" />
+      </label>
+      <label>API Secret
+        <input id="apiSecretInput" type="password" placeholder="请输入 API Secret" />
+      </label>
+      <div class="card-actions">
+        <button id="saveApiBtn">保存</button>
+        <button id="closeApiBtn">取消</button>
       </div>
     </div>
   </div>

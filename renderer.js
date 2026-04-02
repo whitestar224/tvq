@@ -26,6 +26,30 @@ const updText = document.getElementById('updText');
 const checkUpdBtn = document.getElementById('checkUpdBtn');
 const dlUpdBtn = document.getElementById('dlUpdBtn');
 
+const toggleTradeBtn = document.getElementById('toggleTradeBtn');
+const tradePanel = document.getElementById('tradePanel');
+const autoAlertChk = document.getElementById('autoAlertChk');
+const apiStatusText = document.getElementById('apiStatusText');
+const cfgApiBtn = document.getElementById('cfgApiBtn');
+const testApiBtn = document.getElementById('testApiBtn');
+const orderTypeSel = document.getElementById('orderTypeSel');
+const leverageInput = document.getElementById('leverageInput');
+const qtyInput = document.getElementById('qtyInput');
+const priceWrap = document.getElementById('priceWrap');
+const priceInput = document.getElementById('priceInput');
+const tpInput = document.getElementById('tpInput');
+const slInput = document.getElementById('slInput');
+const reduceOnlyChk = document.getElementById('reduceOnlyChk');
+const longBtn = document.getElementById('longBtn');
+const shortBtn = document.getElementById('shortBtn');
+
+const apiModal = document.getElementById('apiModal');
+const apiMask = document.getElementById('apiMask');
+const closeApiBtn = document.getElementById('closeApiBtn');
+const saveApiBtn = document.getElementById('saveApiBtn');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const apiSecretInput = document.getElementById('apiSecretInput');
+
 async function refreshStatus() {
   try {
     const s = await window.tvq.getStatus(false);
@@ -62,6 +86,49 @@ async function refreshUpdateStatus(silent = false) {
     updText.textContent = `更新状态: ${r.message}`;
     dlUpdBtn.disabled = true;
     latestUpdate = null;
+  }
+}
+
+async function refreshCredentialStatus() {
+  const r = await window.tvq.getBinanceCredentialStatus();
+  if (!r.ok || !r.configured) {
+    apiStatusText.textContent = 'API: 未配置';
+    return;
+  }
+  apiStatusText.textContent = `API: 已配置 (${r.keyHint || '****'})`;
+}
+
+function toggleTradePanel() {
+  tradePanel.classList.toggle('hidden');
+  toggleTradeBtn.textContent = tradePanel.classList.contains('hidden') ? '开仓面板' : '收起开仓';
+}
+
+function syncOrderTypeUI() {
+  const isLimit = orderTypeSel.value === 'LIMIT';
+  priceWrap.classList.toggle('hidden', !isLimit);
+}
+
+async function placeOrder(side) {
+  if (!currentSymbol) {
+    alert('未识别到币种，暂时无法下单');
+    return;
+  }
+  const payload = {
+    symbolRaw: currentSymbol,
+    side,
+    type: orderTypeSel.value,
+    leverage: Number(leverageInput.value || 0),
+    quantityUsdt: qtyInput.value,
+    price: priceInput.value,
+    takeProfit: tpInput.value,
+    stopLoss: slInput.value,
+    reduceOnly: reduceOnlyChk.checked
+  };
+  const r = await window.tvq.placeBinanceOrder(payload);
+  if (r.ok) {
+    alert('下单成功');
+  } else {
+    alert(`下单失败: ${r.message || '未知错误'}`);
   }
 }
 
@@ -113,6 +180,44 @@ window.tvq.onUpdateFound((r) => {
   dlUpdBtn.disabled = false;
 });
 
+if (window.tvq.onAlertTriggered) {
+  window.tvq.onAlertTriggered((d) => {
+    statusText.textContent = `警报触发跳转: ${d.symbol}`;
+  });
+}
+
+toggleTradeBtn.addEventListener('click', toggleTradePanel);
+orderTypeSel.addEventListener('change', syncOrderTypeUI);
+cfgApiBtn.addEventListener('click', () => apiModal.classList.remove('hidden'));
+apiMask.addEventListener('click', () => apiModal.classList.add('hidden'));
+closeApiBtn.addEventListener('click', () => apiModal.classList.add('hidden'));
+
+saveApiBtn.addEventListener('click', async () => {
+  const key = apiKeyInput.value.trim();
+  const secret = apiSecretInput.value.trim();
+  const r = await window.tvq.setBinanceCredentials(key, secret);
+  if (!r.ok) {
+    alert(`保存失败: ${r.message || '未知错误'}`);
+    return;
+  }
+  apiModal.classList.add('hidden');
+  apiSecretInput.value = '';
+  await refreshCredentialStatus();
+});
+
+testApiBtn.addEventListener('click', async () => {
+  const r = await window.tvq.testBinanceConnection();
+  alert(r.ok ? 'API 测试成功' : `API 测试失败: ${r.message || '未知错误'}`);
+  await refreshCredentialStatus();
+});
+
+longBtn.addEventListener('click', () => placeOrder('BUY'));
+shortBtn.addEventListener('click', () => placeOrder('SELL'));
+
+autoAlertChk.addEventListener('change', async () => {
+  await window.tvq.setAutoAlertEnabled(autoAlertChk.checked);
+});
+
 function startTimers() {
   stopTimers();
   statusTimer = setInterval(refreshStatus, 2500);
@@ -141,5 +246,9 @@ document.addEventListener('visibilitychange', () => {
   await window.tvq.getStatus(true);
   await refreshStatus();
   await refreshUpdateStatus(true);
+  await refreshCredentialStatus();
+  const a = await window.tvq.getAutoAlertEnabled();
+  autoAlertChk.checked = Boolean(a && a.enabled);
+  syncOrderTypeUI();
   startTimers();
 })();
