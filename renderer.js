@@ -1,5 +1,7 @@
 ﻿let currentSymbol = '';
 let latestUpdate = null;
+let statusTimer = null;
+let updateTimer = null;
 
 const statusText = document.getElementById('statusText');
 const openBtn = document.getElementById('openBtn');
@@ -27,7 +29,7 @@ const dlUpdBtn = document.getElementById('dlUpdBtn');
 
 async function refreshStatus() {
   try {
-    const s = await window.tvq.getStatus();
+    const s = await window.tvq.getStatus(false);
     statusText.textContent = s.message || '检测中...';
     currentSymbol = s.symbol || '';
     openBtn.disabled = !currentSymbol;
@@ -113,11 +115,33 @@ window.tvq.onUpdateFound((r) => {
   dlUpdBtn.disabled = false;
 });
 
+function startTimers() {
+  stopTimers();
+  statusTimer = setInterval(refreshStatus, 2500);
+  updateTimer = setInterval(() => refreshUpdateStatus(true), 300000);
+}
+
+function stopTimers() {
+  if (statusTimer) clearInterval(statusTimer);
+  if (updateTimer) clearInterval(updateTimer);
+  statusTimer = null;
+  updateTimer = null;
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopTimers();
+  } else {
+    refreshStatus();
+    startTimers();
+  }
+});
+
 (async () => {
   const v = await window.tvq.getVersion();
   verText.textContent = `当前版本: ${v}`;
+  await window.tvq.getStatus(true);
   await refreshStatus();
   await refreshUpdateStatus(true);
-  setInterval(refreshStatus, 1200);
-  setInterval(() => refreshUpdateStatus(true), 120000);
+  startTimers();
 })();

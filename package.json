@@ -1,48 +1,63 @@
 {
-    "name":  "tvq-electron",
-    "version":  "1.0.0",
-    "description":  "TradingView Futures Quick Jump (Electron)",
-    "main":  "main.js",
-    "author":  "whitestar0224",
-    "license":  "MIT",
-    "scripts":  {
-                    "start":  "electron .",
-                    "dist":  "electron-builder --win portable nsis"
-                },
-    "devDependencies":  {
-                            "electron":  "^33.2.0",
-                            "electron-builder":  "^25.1.8"
-                        },
-    "build":  {
-                  "appId":  "com.tvq.desktop",
-                  "productName":  "TVQ",
-                  "files":  [
-                                "main.js",
-                                "preload.js",
-                                "renderer.js",
-                                "index.html",
-                                "styles.css",
-                                "tvq_detect.ahk",
-                                "TVQ.ico",
-                                "update-config.json"
-                            ],
-                  "win":  {
-                              "target":  [
-                                             "portable",
-                                             "nsis"
-                                         ],
-                              "icon":  "TVQ.ico"
-                          },
-                  "portable":  {
-                                   "artifactName":  "TVQ-Portable-${version}.exe"
-                               },
-                  "nsis":  {
-                               "oneClick":  false,
-                               "allowToChangeInstallationDirectory":  true,
-                               "artifactName":  "TVQ-Setup-${version}.exe",
-                               "createDesktopShortcut":  true,
-                               "createStartMenuShortcut":  true,
-                               "shortcutName":  "TVQ"
-                           }
-              }
+  "name": "tvq-electron",
+  "version": "1.0.1",
+  "description": "TradingView Futures Quick Jump (Electron)",
+  "main": "main.js",
+  "author": "whitestar0224",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable nsis nsis-web"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.tvq.desktop",
+    "productName": "TVQ",
+    "asar": true,
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US",
+      "zh-CN"
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "styles.css",
+      "tvq_detect.ahk",
+      "TVQ.ico",
+      "update-config.json"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis",
+        "nsis-web"
+      ],
+      "icon": "TVQ.ico"
+    },
+    "portable": {
+      "artifactName": "TVQ-Portable-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "TVQ-Setup-${version}.exe",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TVQ"
+    },
+    "nsisWeb": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "TVQ-WebSetup-${version}.exe",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TVQ"
+    }
+  }
 }

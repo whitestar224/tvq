@@ -1,7 +1,7 @@
 ﻿const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
 contextBridge.exposeInMainWorld('tvq', {
-  getStatus: () => ipcRenderer.invoke('status:get'),
+  getStatus: (force = false) => ipcRenderer.invoke('status:get', force),
   openContract: (symbol) => ipcRenderer.invoke('contract:open', symbol),
   max: () => ipcRenderer.invoke('win:max'),
   hide: () => ipcRenderer.invoke('win:hide'),

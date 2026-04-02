@@ -10,6 +10,9 @@ let win;
 let tray;
 let detectScriptPath = '';
 let updateCache = null;
+let detectInFlight = null;
+let detectLastResult = null;
+let detectLastAt = 0;
 
 const AHK_CANDIDATES = [
   'C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe',
@@ -87,11 +90,23 @@ function getCenterPoint() {
   return { x: Math.floor(b.x + b.width / 2), y: Math.floor(b.y + b.height / 2) };
 }
 
-function detectStatus() {
-  return new Promise((resolve) => {
+function detectStatus(force = false) {
+  const now = Date.now();
+  if (!force && detectLastResult && (now - detectLastAt) < 1500) {
+    return Promise.resolve(detectLastResult);
+  }
+  if (!force && detectInFlight) {
+    return detectInFlight;
+  }
+
+  detectInFlight = new Promise((resolve) => {
     const ahkExe = findAhkExe();
     if (!ahkExe) {
-      resolve({ ok: false, monitor: 1, symbol: '', message: '未找到 AutoHotkey v2' });
+      const out = { ok: false, monitor: 1, symbol: '', message: '未找到 AutoHotkey v2' };
+      detectLastResult = out;
+      detectLastAt = Date.now();
+      detectInFlight = null;
+      resolve(out);
       return;
     }
 
@@ -99,21 +114,30 @@ function detectStatus() {
     const script = detectScriptPath || path.join(__dirname, 'tvq_detect.ahk');
     execFile(ahkExe, [script, String(center.x), String(center.y)], { timeout: 1500 }, (err, stdout) => {
       if (err) {
-        resolve({ ok: false, monitor: 1, symbol: '', message: '检测失败' });
+        const out = { ok: false, monitor: 1, symbol: '', message: '检测失败' };
+        detectLastResult = out;
+        detectLastAt = Date.now();
+        detectInFlight = null;
+        resolve(out);
         return;
       }
       const line = String(stdout || '').trim();
       const parts = line.split('|');
       const monitor = Number(parts[0] || 1);
       const symbol = parts[1] || '';
-      resolve({
+      const out = {
         ok: symbol.length > 0,
         monitor,
         symbol,
         message: symbol ? `屏幕${monitor} 自动: ${symbol}` : `屏幕${monitor} 未识别到 TradingView 币种`
-      });
+      };
+      detectLastResult = out;
+      detectLastAt = Date.now();
+      detectInFlight = null;
+      resolve(out);
     });
   });
+  return detectInFlight;
 }
 
 function normalizeSymbol(raw) {
@@ -323,7 +347,7 @@ async function downloadUpdate(kind = 'setup') {
   return { ok: true, file: outPath, message: '下载完成' };
 }
 
-ipcMain.handle('status:get', async () => detectStatus());
+ipcMain.handle('status:get', async (_evt, force) => detectStatus(Boolean(force)));
 ipcMain.handle('contract:open', async (_evt, symbol) => {
   const n = normalizeSymbol(symbol);
   if (!n) return { ok: false, message: '币种解析失败' };
