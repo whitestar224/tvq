@@ -179,8 +179,12 @@ function isNewer(latest, current) {
   return false;
 }
 
+function stripBom(s) {
+  return String(s || '').replace(/^\uFEFF/, '');
+}
+
 function getUpdateConfig() {
-  const defaults = {
+  const bundledDefaults = {
     enabled: false,
     checkIntervalMinutes: 30,
     manifestUrl: '',
@@ -189,13 +193,27 @@ function getUpdateConfig() {
 
   const userCfg = path.join(app.getPath('userData'), 'update-config.json');
   const bundledCfg = path.join(__dirname, 'update-config.json');
-  const cfgPath = fs.existsSync(userCfg) ? userCfg : bundledCfg;
 
   try {
-    const data = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-    return { ...defaults, ...data };
+    let bundled = {};
+    let user = {};
+    if (fs.existsSync(bundledCfg)) {
+      bundled = JSON.parse(stripBom(fs.readFileSync(bundledCfg, 'utf8')));
+    }
+    if (fs.existsSync(userCfg)) {
+      user = JSON.parse(stripBom(fs.readFileSync(userCfg, 'utf8')));
+    }
+
+    const cfg = { ...bundledDefaults, ...bundled, ...user };
+    if (!cfg.manifestUrl && bundled.manifestUrl) {
+      cfg.manifestUrl = bundled.manifestUrl;
+    }
+    if (typeof cfg.enabled !== 'boolean') {
+      cfg.enabled = Boolean(cfg.enabled);
+    }
+    return cfg;
   } catch {
-    return defaults;
+    return bundledDefaults;
   }
 }
 
@@ -216,7 +234,7 @@ function fetchJson(url) {
       res.on('data', (chunk) => { raw += chunk; });
       res.on('end', () => {
         try {
-          resolve(JSON.parse(raw));
+          resolve(JSON.parse(stripBom(raw)));
         } catch (e) {
           reject(e);
         }
