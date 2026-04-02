@@ -90,6 +90,49 @@ function getCenterPoint() {
   return { x: Math.floor(b.x + b.width / 2), y: Math.floor(b.y + b.height / 2) };
 }
 
+function extractSymbolFromText(text) {
+  const t = String(text || '');
+  const m1 = t.match(/([A-Z0-9]+:[A-Z0-9._-]+)/i);
+  if (m1 && m1[1]) return m1[1].toUpperCase();
+  const m2 = t.match(/\b([A-Z0-9]{3,}(USDT|USDC|USD|BUSD|FDUSD|BTC|ETH)(\.P|\.PERP|PERP)?)\b/i);
+  if (m2 && m2[1]) return `BINANCE:${m2[1].toUpperCase()}`;
+  return '';
+}
+
+function detectStatusMac() {
+  return new Promise((resolve) => {
+    const script = `
+set tvTitle to ""
+try
+  tell application "System Events"
+    if exists process "TradingView" then
+      tell process "TradingView"
+        if (count of windows) > 0 then
+          set tvTitle to name of front window
+        end if
+      end tell
+    end if
+  end tell
+end try
+return tvTitle
+`;
+    execFile('/usr/bin/osascript', ['-e', script], { timeout: 1500 }, (err, stdout) => {
+      if (err) {
+        resolve({ ok: false, monitor: 1, symbol: '', message: '检测失败' });
+        return;
+      }
+      const title = String(stdout || '').trim();
+      const symbol = extractSymbolFromText(title);
+      resolve({
+        ok: symbol.length > 0,
+        monitor: 1,
+        symbol,
+        message: symbol ? `自动: ${symbol}` : '未识别到 TradingView 币种'
+      });
+    });
+  });
+}
+
 function detectStatus(force = false) {
   const now = Date.now();
   if (!force && detectLastResult && (now - detectLastAt) < 1500) {
@@ -100,6 +143,25 @@ function detectStatus(force = false) {
   }
 
   detectInFlight = new Promise((resolve) => {
+    if (process.platform === 'darwin') {
+      detectStatusMac().then((out) => {
+        detectLastResult = out;
+        detectLastAt = Date.now();
+        detectInFlight = null;
+        resolve(out);
+      });
+      return;
+    }
+
+    if (process.platform !== 'win32') {
+      const out = { ok: false, monitor: 1, symbol: '', message: '当前系统暂不支持自动识别' };
+      detectLastResult = out;
+      detectLastAt = Date.now();
+      detectInFlight = null;
+      resolve(out);
+      return;
+    }
+
     const ahkExe = findAhkExe();
     if (!ahkExe) {
       const out = { ok: false, monitor: 1, symbol: '', message: '未找到 AutoHotkey v2' };

@@ -1,13 +1,15 @@
 {
   "name": "tvq-electron",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "TradingView Futures Quick Jump (Electron)",
   "main": "main.js",
   "author": "whitestar0224",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable nsis nsis-web"
+    "dist": "npm run dist:win",
+    "dist:win": "electron-builder --win portable nsis nsis-web",
+    "dist:mac": "electron-builder --mac dmg zip"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -39,6 +41,14 @@
         "nsis-web"
       ],
       "icon": "TVQ.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.finance",
+      "artifactName": "TVQ-Mac-${version}-${arch}.${ext}"
     },
     "portable": {
       "artifactName": "TVQ-Portable-${version}.exe"

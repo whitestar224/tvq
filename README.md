@@ -66,3 +66,21 @@ npm run dist
 ## 作者
 
 - 微信：`whitestar0224`
+
+## macOS 适配
+
+已支持 macOS 运行逻辑（通过 `osascript` 读取 TradingView 窗口标题识别币种）。
+
+在 Mac 上打包命令：
+
+```bash
+npm install
+npm run dist:mac
+```
+
+生成产物：
+
+- `TVQ-Mac-<version>-arm64.dmg` / `TVQ-Mac-<version>-x64.dmg`
+- `TVQ-Mac-<version>-arm64.zip` / `TVQ-Mac-<version>-x64.zip`
+
+提示：首次使用可能需要在“系统设置 -> 隐私与安全性 -> 辅助功能”中授权 TVQ 读取窗口信息。
