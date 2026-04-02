@@ -1,73 +1,73 @@
 {
-  "name": "tvq-electron",
-  "version": "1.0.2",
-  "description": "TradingView Futures Quick Jump (Electron)",
-  "main": "main.js",
-  "author": "whitestar0224",
-  "license": "MIT",
-  "scripts": {
-    "start": "electron .",
-    "dist": "npm run dist:win",
-    "dist:win": "electron-builder --win portable nsis nsis-web",
-    "dist:mac": "electron-builder --mac dmg zip"
-  },
-  "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
-  },
-  "build": {
-    "appId": "com.tvq.desktop",
-    "productName": "TVQ",
-    "asar": true,
-    "compression": "maximum",
-    "electronLanguages": [
-      "en-US",
-      "zh-CN"
-    ],
-    "files": [
-      "main.js",
-      "preload.js",
-      "renderer.js",
-      "index.html",
-      "styles.css",
-      "tvq_detect.ahk",
-      "TVQ.ico",
-      "update-config.json"
-    ],
-    "win": {
-      "target": [
-        "portable",
-        "nsis",
-        "nsis-web"
-      ],
-      "icon": "TVQ.ico"
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.finance",
-      "artifactName": "TVQ-Mac-${version}-${arch}.${ext}"
-    },
-    "portable": {
-      "artifactName": "TVQ-Portable-${version}.exe"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "TVQ-Setup-${version}.exe",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "TVQ"
-    },
-    "nsisWeb": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "TVQ-WebSetup-${version}.exe",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "TVQ"
-    }
-  }
+    "name":  "tvq-electron",
+    "version":  "1.0.3",
+    "description":  "TradingView Futures Quick Jump (Electron)",
+    "main":  "main.js",
+    "author":  "whitestar0224",
+    "license":  "MIT",
+    "scripts":  {
+                    "start":  "electron .",
+                    "dist":  "npm run dist:win",
+                    "dist:win":  "electron-builder --win portable nsis nsis-web",
+                    "dist:mac":  "electron-builder --mac dmg zip"
+                },
+    "devDependencies":  {
+                            "electron":  "^33.2.0",
+                            "electron-builder":  "^25.1.8"
+                        },
+    "build":  {
+                  "appId":  "com.tvq.desktop",
+                  "productName":  "TVQ",
+                  "asar":  true,
+                  "compression":  "maximum",
+                  "electronLanguages":  [
+                                            "en-US",
+                                            "zh-CN"
+                                        ],
+                  "files":  [
+                                "main.js",
+                                "preload.js",
+                                "renderer.js",
+                                "index.html",
+                                "styles.css",
+                                "tvq_detect.ahk",
+                                "TVQ.ico",
+                                "update-config.json"
+                            ],
+                  "win":  {
+                              "target":  [
+                                             "portable",
+                                             "nsis",
+                                             "nsis-web"
+                                         ],
+                              "icon":  "TVQ.ico"
+                          },
+                  "mac":  {
+                              "target":  [
+                                             "dmg",
+                                             "zip"
+                                         ],
+                              "category":  "public.app-category.finance",
+                              "artifactName":  "TVQ-Mac-${version}-${arch}.${ext}"
+                          },
+                  "portable":  {
+                                   "artifactName":  "TVQ-Portable-${version}.exe"
+                               },
+                  "nsis":  {
+                               "oneClick":  false,
+                               "allowToChangeInstallationDirectory":  true,
+                               "artifactName":  "TVQ-Setup-${version}.exe",
+                               "createDesktopShortcut":  true,
+                               "createStartMenuShortcut":  true,
+                               "shortcutName":  "TVQ"
+                           },
+                  "nsisWeb":  {
+                                  "oneClick":  false,
+                                  "allowToChangeInstallationDirectory":  true,
+                                  "artifactName":  "TVQ-WebSetup-${version}.exe",
+                                  "createDesktopShortcut":  true,
+                                  "createStartMenuShortcut":  true,
+                                  "shortcutName":  "TVQ"
+                              }
+              }
 }

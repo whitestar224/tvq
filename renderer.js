@@ -5,7 +5,6 @@ let updateTimer = null;
 
 const statusText = document.getElementById('statusText');
 const openBtn = document.getElementById('openBtn');
-const refreshBtn = document.getElementById('refreshBtn');
 
 const minBtn = document.getElementById('minBtn');
 const maxBtn = document.getElementById('maxBtn');
@@ -71,7 +70,6 @@ openBtn.addEventListener('click', async () => {
   await window.tvq.openContract(currentSymbol);
 });
 
-refreshBtn.addEventListener('click', refreshStatus);
 minBtn.addEventListener('click', () => window.tvq.hide());
 maxBtn.addEventListener('click', () => window.tvq.max());
 closeBtn.addEventListener('click', () => window.tvq.close());

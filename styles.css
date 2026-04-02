@@ -45,8 +45,14 @@ html, body { width: 100%; height: 100%; margin: 0; font-family: "Microsoft YaHei
 .controls .danger { background: #b91c1c; }
 .controls button:hover { filter: brightness(1.1); }
 .content { padding: 10px; display: grid; grid-template-rows: auto auto auto auto; gap: 10px; height: calc(100% - 36px); }
+.subtitle-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
 .subtitle { color: var(--muted); font-size: clamp(14px, 3.6vw, 20px); }
-.status-row { background: var(--panel); border: 1px solid #1f2a44; padding: 8px; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; min-height: 38px; }
+.status-row { background: var(--panel); border: 1px solid #1f2a44; padding: 8px; display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; min-height: 38px; }
 .label { color: #94a3b8; }
 #adBtn.ad-mini {
   height: clamp(24px, 5.6vw, 28px);
@@ -58,7 +64,7 @@ html, body { width: 100%; height: 100%; margin: 0; font-family: "Microsoft YaHei
   cursor: pointer;
   font-size: clamp(11px, 2.4vw, 12px);
 }
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .actions button {
   height: clamp(30px, 8vw, 38px);
   border: 1px solid #4b5563;
@@ -125,10 +131,6 @@ html, body { width: 100%; height: 100%; margin: 0; font-family: "Microsoft YaHei
   }
   .status-row {
     grid-template-columns: auto 1fr;
-  }
-  #adBtn.ad-mini {
-    grid-column: 1 / 3;
-    justify-self: end;
   }
   .update-row {
     grid-template-columns: 1fr 1fr;
