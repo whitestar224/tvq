@@ -10,6 +10,17 @@ if (A_Args.Length >= 2) {
     x := Number(A_Args[1])
     y := Number(A_Args[2])
 }
+mode := ""
+if (A_Args.Length >= 3) {
+    mode := A_Args[3]
+}
+
+if (mode = "alert") {
+    alertSym := DetectAlertSymbol()
+    FileAppend(alertSym, "*")
+    ExitApp
+}
+
 monitor := GetMonitorByPoint(x, y)
 hwnd := GetTradingViewWindowForMonitor(monitor)
 if !hwnd {
@@ -20,6 +31,24 @@ if (hwnd) {
     symbol := ExtractSymbolFromTitle(WinGetTitle("ahk_id " hwnd))
 }
 FileAppend(monitor "|" symbol, "*")
+
+DetectAlertSymbol() {
+    for _, hwnd in WinGetList("ahk_exe TradingView.exe") {
+        title := ""
+        try title := WinGetTitle("ahk_id " hwnd)
+        if (title = "") {
+            continue
+        }
+        if !(InStr(title, "警报") || InStr(title, "Alert")) {
+            continue
+        }
+        sym := ExtractSymbolFromTitle(title)
+        if (sym != "") {
+            return sym
+        }
+    }
+    return ""
+}
 
 GetMonitorByPoint(x, y) {
     monitorCount := MonitorGetCount()

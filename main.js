@@ -17,12 +17,39 @@ let autoAlertEnabled = false;
 let lastAlertSymbol = '';
 let lastAlertAt = 0;
 
-const BINANCE_API_BASE = 'https://fapi.binance.com';
+const BINANCE_API_BASES = [
+  'https://fapi.binance.com',
+  'https://fapi1.binance.com',
+  'https://fapi2.binance.com'
+];
 const AHK_CANDIDATES = [
   'C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe',
   'C:/Program Files/AutoHotkey/v2/AutoHotkey.exe',
   'C:/Program Files/AutoHotkey/AutoHotkey64.exe'
 ];
+
+function normalizeFetchError(err) {
+  if (!err) return '未知网络错误';
+  const code = err.code || err.cause?.code || '';
+  const msg = err.message || String(err);
+  if (code === 'ETIMEDOUT' || msg.includes('timed out')) return '网络超时，请检查网络/代理';
+  if (code === 'ENOTFOUND') return '域名解析失败，请检查 DNS 或网络环境';
+  if (code === 'ECONNREFUSED' || code === 'ECONNRESET') return '连接被拒绝或重置，请检查网络/防火墙';
+  if (msg === 'fetch failed') return '无法连接交易所接口（可能需要代理网络）';
+  return `${msg}${code ? ` (${code})` : ''}`;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    throw new Error(normalizeFetchError(e));
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function stripBom(s) {
   return String(s || '').replace(/^\uFEFF/, '');
@@ -443,17 +470,25 @@ async function binanceSignedRequest(method, apiPath, params, apiKey, apiSecret) 
   const baseParams = { ...params, timestamp: Date.now(), recvWindow: 5000 };
   const query = new URLSearchParams(baseParams).toString();
   const fullQuery = `${query}&signature=${signQuery(query, apiSecret)}`;
-  const url = `${BINANCE_API_BASE}${apiPath}`;
-  const res = await fetch(method === 'GET' ? `${url}?${fullQuery}` : url, {
-    method,
-    headers: { 'X-MBX-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: method === 'GET' ? undefined : fullQuery
-  });
-  const text = await res.text();
-  let json = {};
-  try { json = JSON.parse(text); } catch { json = { msg: text }; }
-  if (!res.ok) throw new Error(json.msg || `HTTP ${res.status}`);
-  return json;
+  let lastErr = null;
+  for (const base of BINANCE_API_BASES) {
+    try {
+      const url = `${base}${apiPath}`;
+      const res = await fetchWithTimeout(method === 'GET' ? `${url}?${fullQuery}` : url, {
+        method,
+        headers: { 'X-MBX-APIKEY': apiKey, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: method === 'GET' ? undefined : fullQuery
+      }, 12000);
+      const text = await res.text();
+      let json = {};
+      try { json = JSON.parse(text); } catch { json = { msg: text }; }
+      if (!res.ok) throw new Error(json.msg || `HTTP ${res.status}`);
+      return json;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(`Binance 请求失败: ${normalizeFetchError(lastErr)}`);
 }
 
 function roundDownToStep(value, step) {
@@ -467,7 +502,18 @@ function formatNumber(n, maxDp = 12) {
 }
 
 async function getBinanceSymbolMeta(symbol) {
-  const info = await fetchJson(`${BINANCE_API_BASE}/fapi/v1/exchangeInfo`);
+  let info = null;
+  let lastErr = null;
+  for (const base of BINANCE_API_BASES) {
+    try {
+      const res = await fetchWithTimeout(`${base}/fapi/v1/exchangeInfo`, {}, 12000);
+      info = await res.json();
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (!info) throw new Error(`Binance 元数据获取失败: ${normalizeFetchError(lastErr)}`);
   const s = (info.symbols || []).find((x) => x.symbol === symbol);
   if (!s) {
     throw new Error(`交易对不存在: ${symbol}`);
@@ -482,8 +528,17 @@ async function getBinanceSymbolMeta(symbol) {
 }
 
 async function getBinanceLastPrice(symbol) {
-  const p = await fetchJson(`${BINANCE_API_BASE}/fapi/v1/ticker/price?symbol=${symbol}`);
-  return Number(p.price || 0);
+  let lastErr = null;
+  for (const base of BINANCE_API_BASES) {
+    try {
+      const res = await fetchWithTimeout(`${base}/fapi/v1/ticker/price?symbol=${symbol}`, {}, 12000);
+      const p = await res.json();
+      return Number(p.price || 0);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(`Binance 价格获取失败: ${normalizeFetchError(lastErr)}`);
 }
 
 async function binancePlaceOrder(payload) {
@@ -579,22 +634,26 @@ async function okxRequest(method, pathWithQuery, body, creds) {
   const bodyText = body ? JSON.stringify(body) : '';
   const preHash = `${ts}${method.toUpperCase()}${pathWithQuery}${bodyText}`;
   const sign = signBase64(preHash, creds.apiSecret);
-  const res = await fetch(`https://www.okx.com${pathWithQuery}`, {
-    method,
-    headers: {
-      'OK-ACCESS-KEY': creds.apiKey,
-      'OK-ACCESS-SIGN': sign,
-      'OK-ACCESS-TIMESTAMP': ts,
-      'OK-ACCESS-PASSPHRASE': creds.passphrase,
-      'Content-Type': 'application/json'
-    },
-    body: body ? bodyText : undefined
-  });
-  const json = await res.json();
-  if (!res.ok || String(json.code || '0') !== '0') {
-    throw new Error(json.msg || `OKX HTTP ${res.status}`);
+  try {
+    const res = await fetchWithTimeout(`https://www.okx.com${pathWithQuery}`, {
+      method,
+      headers: {
+        'OK-ACCESS-KEY': creds.apiKey,
+        'OK-ACCESS-SIGN': sign,
+        'OK-ACCESS-TIMESTAMP': ts,
+        'OK-ACCESS-PASSPHRASE': creds.passphrase,
+        'Content-Type': 'application/json'
+      },
+      body: body ? bodyText : undefined
+    }, 12000);
+    const json = await res.json();
+    if (!res.ok || String(json.code || '0') !== '0') {
+      throw new Error(json.msg || `OKX HTTP ${res.status}`);
+    }
+    return json.data || [];
+  } catch (e) {
+    throw new Error(`OKX 请求失败: ${normalizeFetchError(e)}`);
   }
-  return json.data || [];
 }
 
 async function bitgetRequest(method, pathWithQuery, body, creds) {
@@ -602,23 +661,27 @@ async function bitgetRequest(method, pathWithQuery, body, creds) {
   const bodyText = body ? JSON.stringify(body) : '';
   const preHash = `${ts}${method.toUpperCase()}${pathWithQuery}${bodyText}`;
   const sign = signBase64(preHash, creds.apiSecret);
-  const res = await fetch(`https://api.bitget.com${pathWithQuery}`, {
-    method,
-    headers: {
-      'ACCESS-KEY': creds.apiKey,
-      'ACCESS-SIGN': sign,
-      'ACCESS-TIMESTAMP': ts,
-      'ACCESS-PASSPHRASE': creds.passphrase,
-      'Content-Type': 'application/json',
-      locale: 'zh-CN'
-    },
-    body: body ? bodyText : undefined
-  });
-  const json = await res.json();
-  if (!res.ok || String(json.code || '0') !== '00000') {
-    throw new Error(json.msg || `Bitget HTTP ${res.status}`);
+  try {
+    const res = await fetchWithTimeout(`https://api.bitget.com${pathWithQuery}`, {
+      method,
+      headers: {
+        'ACCESS-KEY': creds.apiKey,
+        'ACCESS-SIGN': sign,
+        'ACCESS-TIMESTAMP': ts,
+        'ACCESS-PASSPHRASE': creds.passphrase,
+        'Content-Type': 'application/json',
+        locale: 'zh-CN'
+      },
+      body: body ? bodyText : undefined
+    }, 12000);
+    const json = await res.json();
+    if (!res.ok || String(json.code || '0') !== '00000') {
+      throw new Error(json.msg || `Bitget HTTP ${res.status}`);
+    }
+    return json.data || {};
+  } catch (e) {
+    throw new Error(`Bitget 请求失败: ${normalizeFetchError(e)}`);
   }
-  return json.data || {};
 }
 
 async function okxPlaceOrder(payload, creds) {

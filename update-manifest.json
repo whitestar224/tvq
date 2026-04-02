@@ -1,7 +1,7 @@
 ﻿{
-  "version": "1.0.5",
-  "notes": "发布 v1.0.5（多交易所开仓与稳定性更新）。",
-  "setupUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.5/TVQ-Setup-1.0.5.exe",
-  "portableUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.5/TVQ-Portable-1.0.5.exe",
+  "version": "1.0.6",
+  "notes": "网络稳定性修复：API 测试错误可读化，Binance 多域名自动重试。",
+  "setupUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.6/TVQ-Setup-1.0.6.exe",
+  "portableUrl": "https://github.com/whitestar224/tvq/releases/download/v1.0.6/TVQ-Portable-1.0.6.exe",
   "publishedAt": "2026-04-02"
 }
