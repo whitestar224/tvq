@@ -1,0 +1,58 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TVQ</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar" id="drag">
+      <div class="title">TVQ</div>
+      <div class="wechat" id="wxTop" title="点击复制">开发者微信：whitestar0224</div>
+      <div class="controls no-drag">
+        <button id="minBtn">-</button>
+        <button id="maxBtn">□</button>
+        <button id="closeBtn" class="danger">x</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="subtitle">TradingView Futures Quick Jump</div>
+      <div class="status-row">
+        <span class="label">状态</span>
+        <span id="statusText">等待识别 TradingView 币种</span>
+        <button id="adBtn" class="ad-mini">返佣</button>
+      </div>
+
+      <div class="actions">
+        <button id="openBtn" class="primary" disabled>打开合约</button>
+        <button id="refreshBtn">立即识别</button>
+      </div>
+
+      <div class="update-row">
+        <span id="verText">当前版本: -</span>
+        <span id="updText">更新状态: 检查中...</span>
+        <button id="checkUpdBtn">检查更新</button>
+        <button id="dlUpdBtn" disabled>下载更新</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="adModal">
+    <div class="mask" id="adMask"></div>
+    <div class="card">
+      <div class="card-title">交易所返佣链接（翻墙）</div>
+      <a href="#" id="okxLink">OKX: https://www.bjwebptyiou.com/join/51629076</a>
+      <a href="#" id="bnLink">BN: https://www.binance.com/join?ref=WF7KWSF5</a>
+      <a href="#" id="bgLink">BITGET: https://partner.bitgetapps.com/bg/xy8888</a>
+      <div class="card-actions">
+        <button id="closeAdBtn">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

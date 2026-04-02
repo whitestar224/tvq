@@ -1,0 +1,6 @@
+﻿{
+  "enabled": true,
+  "checkIntervalMinutes": 30,
+  "manifestUrl": "",
+  "channel": "stable"
+}
